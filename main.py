@@ -40,7 +40,7 @@ class BlockChain:
         self.chain = [genesisBlock]
         self.target = 1
         self.transactions = []
-        self.reward = 20
+        self.reward = 50
 
     def getLastBlock(self):
         return self.chain[len(self.chain)-1]
