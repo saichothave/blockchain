@@ -1,14 +1,17 @@
 import random
 import heapq
-import time
+import uuid
+import sys
+import functools
 
 class Peer:
     def __init__(self, id, type, cpu):
         self.id = id
         self.type = type    # slow/fast
         self.cpu = cpu      # low/high
-        self.balance = 0
+        self.balance = 100
         self.connections = []
+        self.transactions = []
         self.blocks = []           # receive blocks
 
     def connect_to_peer(self, peer):
@@ -20,7 +23,13 @@ class Peer:
         for peer in self.connections:
             print(" - Peer", peer.id)
 
-    
+
+class Transaction:
+  def __init__(self, id, sender, receiver, amount):
+    self.id = id
+    self.sender = sender.id
+    self.receiver = receiver.id
+    self.amount = amount
 
                                     
 class Event:
@@ -31,64 +40,53 @@ class Event:
     def __lt__(self, other):
         return self.timestamp < other.timestamp
     
+
+def receive_transaction(generator, frm, to, txn):
+    if txn in to.transactions:    # if txn already seen
+        return 
+    print(f'transaction received from {frm.id} to {to.id}')
+    to.transactions.append(txn)
+    connected_peers = to.connections
+    if frm in connected_peers:
+        connected_peers.remove(frm)
+    # Check if the txn is valid
+    if TxnisValid(generator, txn):
+        peer.transactions.append(txn)
+        for connected_peer in connected_peers:          # broadcast txn to next connected peers 
+            message_length = sys.getsizeof(txn)
+            transmission_delay = calculate_latency(to, connected_peer, message_length, fast_peers )
+            receive_transaction_callback = functools.partial(receive_transaction, generator= generator,frm=to, to=connected_peer, txn=txn)
+            heapq.heappush(event_queue,Event(transmission_delay, receive_transaction_callback))
+    else:
+        print(f"Transaction {txn.id} is invalid. Not forwarding to connected peers.")
     
-def send_block(peer, block):
-    # Get a list of the peer's connected peers
-  
-    connected_peers = [p for p in peers if peer in p.connections]
-    for connected_peer in connected_peers:
-        # Check if the connected peer is slow or fast
-        print(f'sending block from {peer.id} to {connected_peer.id}')
-        if connected_peer.type == "slow":
-            delay = random.expovariate(1.0 / slow_peer_delay)
-        else:
-            delay = random.expovariate(1.0 / fast_peer_delay)
 
-        # Schedule the receive block event for the connected peer
-        print('Schedule the receive block event for the connected peer', connected_peer.id, 'from ', peer.id)
-        event_queue.append(Event(delay, receive_block(connected_peer, block)))
 
-def receive_block(peer, block):
-    # Get a list of the peer's connected peers
-    if block in peer.blocks:    # if block already seen
-        return
-    connected_peers = [p for p in peers if peer.id in p.connections]
-    for connected_peer in connected_peers:
-        # Check if the connected peer is slow or fast
-        if connected_peer.type == "slow":
-            # Introduce delay in receiving the block
-            time.sleep(slow_peer_delay)
-        else:
-            time.sleep(fast_peer_delay)
-
-    # Add the block to the peer's block list
-    peer.blocks.append(block)
-    print(f"Peer {peer.id} received block {block}.")
-    # Check if the block is valid
-    # if block.is_valid():
-    #     # If the block is valid, forward it to all connected peers
-    #     for peer in peer.connected_peers:
-    #         peer.receive_block(block)
-    # else:
-    #     print(f"Block {block.id} is invalid. Not forwarding to connected peers.")
-    receive_block(peer,block)
-    print('block received at ',peer.id)
-
+def TxnisValid(peer,txn):
+    if peer.balance >= txn.amount:
+        return True
+    return False
 
 def generate_transaction(peer):
-    # Generate a transaction for the given peer
-    # Generate a random amount for the transaction
+    # Generate a transaction for the given 
+    connected_peers = peer.connections
+    receiver = random.choice(connected_peers)    
+    print(f'sender is {peer.id} and receiver is {receiver.id} ' )    
     amount = random.randint(1, 100)
-    print('amount ',amount)
-
-    # Update the peer's balance
-    peer.balance += amount
-
+    id = uuid.uuid4()
+    txn = Transaction(id, peer, receiver, amount)
     # Schedule the next transaction generation for this peer
-
     # Send the transaction to the network
-    block = {"sender": peer.id, "amount": amount}
-    send_block(peer, block)
+    generator = peer
+    for connected_peer in connected_peers:
+        message_length = sys.getsizeof(txn) * 8
+        transmission_delay = calculate_latency(peer, connected_peer, message_length, fast_peers )
+        # print('transmission delay ',transmission_delay)
+        print('Schedule the receive txn event from the connected peer ', peer.id , ' to ', connected_peer.id)
+        receive_transaction_callback = functools.partial(receive_transaction,  generator= generator, frm=peer, to=connected_peer, txn=txn)
+        heapq.heappush(event_queue,Event(transmission_delay, receive_transaction_callback))
+    print(f"Transaction {txn.id}: {peer.id} pays {receiver.id} - {txn.amount} coins")
+
 
 
 
@@ -114,16 +112,7 @@ def check_connected_graph(peers):
     else:
         return False
 
-# def main(num_peers, slow_percent, low_cpu_percent, mean_time):
-    # Initialize the network with the given parameters
-num_peers=random.randint(4, 8)
-slow_percent=random.uniform(0, 1)
-low_cpu_percent=random.uniform(0, 1)
-mean_time=10
-peers = []
-slow_peer_delay = 100000
-fast_peer_delay = 5000
-print(peers, num_peers, slow_percent, low_cpu_percent)
+
 
 def peer_connection():
     global peers, num_peers, slow_percent, low_cpu_percent
@@ -131,12 +120,30 @@ def peer_connection():
     for i in range(num_peers):
         type = "slow" if i < num_peers * slow_percent else "fast"
         cpu = "low" if i < num_peers * low_cpu_percent else "high"
-        peers.append(Peer(i, type, cpu))
+        p = Peer(i, type, cpu)
+        if type == "slow":
+            slow_peers.append(p)
+        else:
+            fast_peers.append(p)
+        peers.append(p)
+    
 
     for i in range(num_peers):
-        for j in range(i+1,num_peers):
-            if random.random()<0.5:
-                peers[i].connect_to_peer(peers[j])
+        already_connected = [i]
+        connected = peers[i].connections
+        for k in connected:
+            already_connected.append(k.id)
+        if len(already_connected) > 8:
+            continue
+        for j in range(random.randint(4, 8)):
+            try:
+                neighbour = random.choice([m for m in range(num_peers) if m not in already_connected])
+                already_connected.append(neighbour)
+                if len(already_connected) > 8 or len(peers[neighbour].connections) > 7:
+                    break
+                peers[i].connect_to_peer(peers[neighbour])
+            except IndexError:
+                break
 
     for p in peers:
         print('peer')
@@ -149,11 +156,26 @@ def peer_connection():
     else:
         print("The peers are not connected and do not form a connected graph.")
         print("reform the connection")
-        num_peers=random.randint(4, 8)
         slow_percent=random.uniform(0, 1)
         low_cpu_percent=random.uniform(0, 1)
         peer_connection()
 
+
+def calculate_latency(sender, receiver, message_length, fast_peers):
+    cij = 100000000 if (sender in fast_peers and receiver in fast_peers) else 5000000
+    dij = random.expovariate(96000/cij)
+    pij = random.uniform(10e-3, 500e-3)
+    latency = pij + message_length/cij + dij
+    return latency
+
+num_peers=10
+slow_percent=random.uniform(0, 1)
+low_cpu_percent=random.uniform(0, 1)
+mean_time=10
+peers = []
+fast_peers = []
+slow_peers = []
+delay = 1
 
 peer_connection()
 print(peers, num_peers, slow_percent, low_cpu_percent)
@@ -165,16 +187,18 @@ event_queue = []
 # Schedule the first transaction generation for each peer
 for peer in peers:
     interarrival_time = random.expovariate(1.0 / mean_time)
-    print('interarrival time ', interarrival_time)
-    event_queue.append(Event(interarrival_time, generate_transaction(peer)))
-    print('event generated')
+    generate_transaction_callback = functools.partial(generate_transaction, peer=peer)
+    heapq.heappush(event_queue,Event(interarrival_time, generate_transaction_callback ))
 
-# # Run the simulation
-# while event_queue:
-#     event = heapq.heappop(event_queue)
-#     print(event)
-#     event.callback()
-        
+# Run the simulation
+print('Running simulation')
+while event_queue:
+    event = heapq.heappop(event_queue)
+    event.callback()
+
+
+for peer in peers:
+    print(f'{peer.id} {peer.balance}' )
 
 # if __name__ == "__main__":
 #     main(num_peers=5, slow_percent=0.2, low_cpu_percent=0.3, mean_time=10)
