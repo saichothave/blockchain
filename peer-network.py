@@ -17,6 +17,10 @@ class Peer:
     def connect_to_peer(self, peer):
         self.connections.append(peer)
         peer.connections.append(self)
+    
+    def disconnect_from_peer(self, peer):
+        self.connections.remove(peer)
+        peer.connections.remove(self)
 
     def check_connections(self):
         print("Peer", self.id, "is connected to:")
@@ -70,6 +74,7 @@ def TxnisValid(peer,txn):
 def generate_transaction(peer):
     # Generate a transaction for the given 
     connected_peers = peer.connections
+    print(peer.id,len(connected_peers))
     receiver = random.choice(connected_peers)    
     print(f'sender is {peer.id} and receiver is {receiver.id} ' )    
     amount = random.randint(1, 100)
@@ -116,6 +121,8 @@ def check_connected_graph(peers):
 
 def peer_connection():
     global peers, num_peers, slow_percent, low_cpu_percent
+    if num_peers < 5:
+        return "Atleast 5 Peers required to form a P2P Network ( Since atleast 4 peers has to be connected to any peer)"
     peers = []
     for i in range(num_peers):
         type = "slow" if i < num_peers * slow_percent else "fast"
@@ -133,17 +140,22 @@ def peer_connection():
         connected = peers[i].connections
         for k in connected:
             already_connected.append(k.id)
-        if len(already_connected) > 8:
-            continue
-        for j in range(random.randint(4, 8)):
+        while len(peers[i].connections) < 4:
             try:
                 neighbour = random.choice([m for m in range(num_peers) if m not in already_connected])
                 already_connected.append(neighbour)
-                if len(already_connected) > 8 or len(peers[neighbour].connections) > 7:
-                    break
+                if len(peers[neighbour].connections) >= 8:
+                    continue
                 peers[i].connect_to_peer(peers[neighbour])
             except IndexError:
                 break
+        while len(peers[i].connections) > 8:
+            disconnect = random.choice(peers[i].connections)
+            peers[i].disconnect_from_peer(disconnect)
+
+
+
+
 
     for p in peers:
         print('peer')
@@ -168,20 +180,18 @@ def calculate_latency(sender, receiver, message_length, fast_peers):
     latency = pij + message_length/cij + dij
     return latency
 
-num_peers=10
+num_peers=20
 slow_percent=random.uniform(0, 1)
 low_cpu_percent=random.uniform(0, 1)
 mean_time=10
 peers = []
 fast_peers = []
 slow_peers = []
-delay = 1
 
 peer_connection()
 print(peers, num_peers, slow_percent, low_cpu_percent)
 # Create an event queue
 event_queue = []
-
 
 
 # Schedule the first transaction generation for each peer
@@ -197,8 +207,6 @@ while event_queue:
     event.callback()
 
 
-for peer in peers:
-    print(f'{peer.id} {peer.balance}' )
+# for peer in peers:
+#     print(f'{peer.id} {peer.balance}' )
 
-# if __name__ == "__main__":
-#     main(num_peers=5, slow_percent=0.2, low_cpu_percent=0.3, mean_time=10)
