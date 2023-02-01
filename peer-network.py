@@ -9,7 +9,7 @@ class Peer:
         self.id = id
         self.type = type    # slow/fast
         self.cpu = cpu      # low/high
-        self.balance = 100
+        self.balance = 1000
         self.connections = []
         self.transactions = []
         self.blocks = []           # receive blocks
@@ -29,11 +29,17 @@ class Peer:
 
 
 class Transaction:
-  def __init__(self, id, sender, receiver, amount):
-    self.id = id
-    self.sender = sender.id
-    self.receiver = receiver.id
-    self.amount = amount
+    def __init__(self, id, sender, receiver, amount):
+        self.id = id
+        self.sender = sender.id
+        self.receiver = receiver.id
+        self.amount = amount
+
+    def isValid(self,peer):
+        # print(f'peer {peer.id} transaction amount is {self.amount} and size is {sys.getsizeof(self)} bytes')
+        if peer.balance >= self.amount and sys.getsizeof(self) <= 1024:
+            return True
+        return False
 
                                     
 class Event:
@@ -49,13 +55,13 @@ def receive_transaction(generator, frm, to, txn):
     if txn in to.transactions:    # if txn already seen
         return 
     print(f'transaction received from {frm.id} to {to.id}')
-    to.transactions.append(txn)
-    connected_peers = to.connections
+    connected_peers = to.connections.copy()
+
     if frm in connected_peers:
         connected_peers.remove(frm)
     # Check if the txn is valid
-    if TxnisValid(generator, txn):
-        peer.transactions.append(txn)
+    if txn.isValid(generator):
+        to.transactions.append(txn)
         for connected_peer in connected_peers:          # broadcast txn to next connected peers 
             message_length = sys.getsizeof(txn)
             transmission_delay = calculate_latency(to, connected_peer, message_length, fast_peers )
@@ -66,18 +72,15 @@ def receive_transaction(generator, frm, to, txn):
     
 
 
-def TxnisValid(peer,txn):
-    if peer.balance >= txn.amount:
-        return True
-    return False
+
 
 def generate_transaction(peer):
     # Generate a transaction for the given 
-    connected_peers = peer.connections
-    print(peer.id,len(connected_peers))
+    connected_peers = peer.connections.copy()
+    print(peer.id,connected_peers)
     receiver = random.choice(connected_peers)    
     print(f'sender is {peer.id} and receiver is {receiver.id} ' )    
-    amount = random.randint(1, 100)
+    amount = random.randint(1, 1000)
     id = uuid.uuid4()
     txn = Transaction(id, peer, receiver, amount)
     # Schedule the next transaction generation for this peer
@@ -90,7 +93,7 @@ def generate_transaction(peer):
         print('Schedule the receive txn event from the connected peer ', peer.id , ' to ', connected_peer.id)
         receive_transaction_callback = functools.partial(receive_transaction,  generator= generator, frm=peer, to=connected_peer, txn=txn)
         heapq.heappush(event_queue,Event(transmission_delay, receive_transaction_callback))
-    print(f"Transaction {txn.id}: {peer.id} pays {receiver.id} - {txn.amount} coins")
+    print(f"Transaction {txn.id}: {peer.id} pays {receiver.id} {txn.amount} coins")
 
 
 
@@ -137,7 +140,7 @@ def peer_connection():
 
     for i in range(num_peers):
         already_connected = [i]
-        connected = peers[i].connections
+        connected = peers[i].connections.copy()
         for k in connected:
             already_connected.append(k.id)
         while len(peers[i].connections) < 4:
@@ -180,7 +183,7 @@ def calculate_latency(sender, receiver, message_length, fast_peers):
     latency = pij + message_length/cij + dij
     return latency
 
-num_peers=20
+num_peers=5
 slow_percent=random.uniform(0, 1)
 low_cpu_percent=random.uniform(0, 1)
 mean_time=10
@@ -193,18 +196,19 @@ print(peers, num_peers, slow_percent, low_cpu_percent)
 # Create an event queue
 event_queue = []
 
-
 # Schedule the first transaction generation for each peer
 for peer in peers:
     interarrival_time = random.expovariate(1.0 / mean_time)
     generate_transaction_callback = functools.partial(generate_transaction, peer=peer)
     heapq.heappush(event_queue,Event(interarrival_time, generate_transaction_callback ))
-
 # Run the simulation
 print('Running simulation')
 while event_queue:
     event = heapq.heappop(event_queue)
     event.callback()
+
+for p in peers:
+    print(len(p.transactions),end=',')
 
 
 # for peer in peers:
